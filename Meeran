@@ -1,0 +1,247 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#10251e">
+<title>FoodLens - Food Nutrition Scanner</title>
+<script src="https://unpkg.com/html5-qrcode"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f3f7f4;color:#183328;font-family:Arial,sans-serif}
+header{background:#10251e;color:white;padding:24px 18px;border-radius:0 0 25px 25px}
+header h1{margin:0;font-size:29px}
+header p{color:#c9ddd2;margin-bottom:0}
+main{max-width:650px;margin:auto;padding:18px}
+.card{background:white;border-radius:18px;padding:19px;margin-bottom:16px;box-shadow:0 4px 16px #18332812}
+h2{font-size:19px;margin-top:0}
+button{border:0;border-radius:12px;padding:13px 16px;background:#16734d;color:white;font-weight:bold;font-size:15px;cursor:pointer}
+button.secondary{background:#e4f1e9;color:#145b3d}
+input{width:100%;padding:14px;border:1px solid #cbd8cf;border-radius:12px;font-size:16px;margin:9px 0 12px}
+.actions{display:flex;gap:9px;flex-wrap:wrap}
+.actions button{flex:1}
+#reader{width:100%;margin-top:14px}
+#result{display:none}
+.muted{color:#718078;font-size:13px;line-height:1.5}
+.nutrition{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.item{background:#f0f6f2;padding:13px;border-radius:12px}
+.item strong{display:block;font-size:19px;margin-top:5px}
+.tag{display:inline-block;background:#e4f1e9;color:#145b3d;padding:6px 10px;border-radius:20px;font-size:12px}
+footer{text-align:center;padding:20px;color:#718078;font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🥗 FoodLens</h1>
+  <p id="subtitle">Know what's inside your food.</p>
+</header>
+
+<main>
+  <div class="card">
+    <div class="actions">
+      <button class="secondary" onclick="setLanguage('en')">English</button>
+      <button class="secondary" onclick="setLanguage('ta')">தமிழ்</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="scanTitle">📷 Scan food barcode</h2>
+    <p class="muted" id="scanInfo">Allow camera access to scan a product barcode.</p>
+    <button onclick="startScanner()" id="scanButton">Start Camera Scanner</button>
+    <div id="reader"></div>
+  </div>
+
+  <div class="card">
+    <h2 id="manualTitle">Or enter barcode manually</h2>
+    <input id="barcode" type="text" inputmode="numeric" placeholder="Enter product barcode">
+    <button onclick="lookup()" id="searchButton">Search Food</button>
+    <p class="muted" id="sourceInfo">Product information is retrieved from Open Food Facts.</p>
+  </div>
+
+  <div class="card" id="result">
+    <span class="tag" id="foundTag">Product found</span>
+    <h2 id="productName"></h2>
+    <p id="brand" class="muted"></p>
+    <div class="nutrition" id="nutrition"></div>
+    <h3 id="ingredientsTitle">Ingredients</h3>
+    <p id="ingredients"></p>
+    <h3 id="allergensTitle">Allergens</h3>
+    <p id="allergens"></p>
+    <p class="muted" id="disclaimer">Values are based on available product data, usually per 100 g or 100 ml. Check the product label for the most accurate information.</p>
+  </div>
+
+  <p id="message" class="muted" style="text-align:center"></p>
+</main>
+
+<footer>FoodLens © 2026 · Food information for awareness</footer>
+
+<script>
+let language = "en";
+let scanner = null;
+
+const words = {
+ en: {
+  subtitle:"Know what's inside your food.",
+  scanTitle:"📷 Scan food barcode",
+  scanInfo:"Allow camera access to scan a product barcode.",
+  scanButton:"Start Camera Scanner",
+  manualTitle:"Or enter barcode manually",
+  searchButton:"Search Food",
+  sourceInfo:"Product information is retrieved from Open Food Facts.",
+  found:"Product found",
+  ingredientsTitle:"Ingredients",
+  allergensTitle:"Allergens",
+  disclaimer:"Values are based on available product data, usually per 100 g or 100 ml. Check the product label for the most accurate information.",
+  searching:"Searching for product...",
+  missing:"Please enter a barcode.",
+  notFound:"Product not found in the database. Try another barcode.",
+  error:"Something went wrong. Please check your internet connection.",
+  noData:"Not available",
+  cameraError:"Camera could not start. Check camera permission and use the published HTTPS website."
+ },
+ ta: {
+  subtitle:"உங்கள் உணவில் என்ன இருக்கிறது என்பதை அறியுங்கள்.",
+  scanTitle:"📷 உணவுப் பொருள் பார்கோடு ஸ்கேன்",
+  scanInfo:"பார்கோடு ஸ்கேன் செய்ய கேமரா அனுமதி வழங்கவும்.",
+  scanButton:"கேமராவைத் தொடங்கவும்",
+  manualTitle:"அல்லது பார்கோடை உள்ளிடவும்",
+  searchButton:"உணவைத் தேடு",
+  sourceInfo:"Open Food Facts தரவுத்தளத்திலிருந்து தகவல் பெறப்படுகிறது.",
+  found:"பொருள் கிடைத்தது",
+  ingredientsTitle:"தேவையான பொருட்கள்",
+  allergensTitle:"ஒவ்வாமை ஏற்படுத்தக்கூடியவை",
+  disclaimer:"கிடைக்கும் தகவல்கள் பொதுவாக 100 கிராம் அல்லது 100 மில்லி அளவுக்கானவை. சரியான தகவலுக்கு பொருளின் லேபிளைப் பார்க்கவும்.",
+  searching:"தேடுகிறது...",
+  missing:"முதலில் பார்கோடை உள்ளிடவும்.",
+  notFound:"இந்த பார்கோடு தரவுத்தளத்தில் கிடைக்கவில்லை.",
+  error:"இணைய இணைப்பைச் சரிபார்க்கவும்.",
+  noData:"தகவல் இல்லை",
+  cameraError:"கேமராவைத் தொடங்க முடியவில்லை. அனுமதியைச் சரிபார்க்கவும்."
+ }
+};
+
+function setLanguage(lang){
+ language = lang;
+ const w = words[lang];
+ document.documentElement.lang = lang === "ta" ? "ta" : "en";
+ document.getElementById("subtitle").textContent=w.subtitle;
+ document.getElementById("scanTitle").textContent=w.scanTitle;
+ document.getElementById("scanInfo").textContent=w.scanInfo;
+ document.getElementById("scanButton").textContent=w.scanButton;
+ document.getElementById("manualTitle").textContent=w.manualTitle;
+ document.getElementById("searchButton").textContent=w.searchButton;
+ document.getElementById("sourceInfo").textContent=w.sourceInfo;
+ document.getElementById("foundTag").textContent=w.found;
+ document.getElementById("ingredientsTitle").textContent=w.ingredientsTitle;
+ document.getElementById("allergensTitle").textContent=w.allergensTitle;
+ document.getElementById("disclaimer").textContent=w.disclaimer;
+}
+
+function showMessage(text){
+ document.getElementById("message").textContent=text;
+}
+
+async function lookup(code){
+ const barcode = (code || document.getElementById("barcode").value).trim();
+ const w = words[language];
+
+ if(!barcode){
+  showMessage(w.missing);
+  return;
+ }
+
+ document.getElementById("barcode").value=barcode;
+ showMessage(w.searching);
+ document.getElementById("result").style.display="none";
+
+ try{
+  const url="https://world.openfoodfacts.org/api/v2/product/"
+    +encodeURIComponent(barcode)
+    +".json?fields=product_name,product_name_en,brands,nutriments,ingredients_text,ingredients_text_en,allergens,allergens_en";
+
+  const response=await fetch(url);
+  if(!response.ok) throw new Error("Network error");
+
+  const data=await response.json();
+
+  if(data.status!==1 || !data.product){
+   showMessage(w.notFound);
+   return;
+  }
+
+  const p=data.product;
+  const n=p.nutriments || {};
+  const name=p.product_name || p.product_name_en || "Unknown product";
+
+  document.getElementById("productName").textContent=name;
+  document.getElementById("brand").textContent=p.brands || "";
+  document.getElementById("ingredients").textContent=
+    p.ingredients_text || p.ingredients_text_en || w.noData;
+  document.getElementById("allergens").textContent=
+    p.allergens || p.allergens_en || w.noData;
+
+  const values=[
+   ["Calories",n["energy-kcal_100g"],"kcal"],
+   ["Sugar",n.sugars_100g,"g"],
+   ["Protein",n.proteins_100g,"g"],
+   ["Fat",n.fat_100g,"g"],
+   ["Carbohydrates",n.carbohydrates_100g,"g"],
+   ["Salt",n.salt_100g,"g"]
+  ];
+
+  const box=document.getElementById("nutrition");
+  box.replaceChildren();
+
+  values.forEach(([label,value,unit])=>{
+   const div=document.createElement("div");
+   div.className="item";
+   const small=document.createElement("span");
+   small.textContent=label;
+   const strong=document.createElement("strong");
+   strong.textContent=value!==undefined && value!==null
+     ? Number(value).toFixed(1)+" "+unit : w.noData;
+   div.append(small,strong);
+   box.appendChild(div);
+  });
+
+  document.getElementById("result").style.display="block";
+  showMessage("");
+ }catch(error){
+  showMessage(w.error);
+ }
+}
+
+async function startScanner(){
+ const w=words[language];
+ showMessage("");
+
+ if(!window.Html5Qrcode){
+  showMessage(w.cameraError);
+  return;
+ }
+
+ try{
+  if(scanner){
+   try{await scanner.stop();}catch(e){}
+  }
+
+  scanner=new Html5Qrcode("reader");
+  await scanner.start(
+   {facingMode:"environment"},
+   {fps:10,qrbox:{width:240,height:150}},
+   async (decodedText)=>{
+    await scanner.stop();
+    scanner=null;
+    await lookup(decodedText);
+   },
+   ()=>{}
+  );
+ }catch(error){
+  showMessage(w.cameraError);
+ }
+}
+</script>
+</body>
+</html>
